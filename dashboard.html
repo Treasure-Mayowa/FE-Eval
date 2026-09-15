@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Cross-lingual Persona Binding — Scaling Dashboard</title>
+<script src="scaling_data.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
   :root {
@@ -291,28 +292,6 @@ document.getElementById('select-english').onclick = () => {
 
 render();
 
-/* ============================================================
-   HOW TO ADD YOUR REAL DATA
-   ------------------------------------------------------------
-   In Python, from your df_merged dataframe:
-
-   import json
-   records = []
-   for _, r in df_merged.iterrows():
-       records.append({
-           "language": r["Language"],
-           "domain": r["Domain"],
-           "level": r["Level"],
-           "N": int(r["N"]),
-           "score": round(float(r["Score"]), 2),
-           "delta": round(float(r["Delta"]), 2),
-       })
-   with open("scaling_data.js", "w") as f:
-       f.write("window.SCALING_DATA = " + json.dumps(records) + ";")
-
-   Then in this HTML, add BEFORE the main <script>:
-       <script src="scaling_data.js"></script>
-   ============================================================ */
 </script>
 </body>
 </html>
