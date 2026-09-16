@@ -138,7 +138,16 @@ function series(lang, level){
     const rows=DATA.filter(d=>d.language===lang&&d.domain===state.domain&&d.N===N&&(level==='AVG'?true:d.level===level));
     if(!rows.length){mean.push(null);up.push(null);lo.push(null);continue;}
     const m=rows.reduce((s,r)=>s+r[key],0)/rows.length;
-    const ci=Math.sqrt(rows.reduce((s,r)=>s+(r[ciKey]||0)**2,0))/rows.length;
+    const explicitCi=rows.filter(r=>Number.isFinite(Number(r[ciKey]))).map(r=>Number(r[ciKey]));
+    let ci;
+    if(explicitCi.length){
+      ci=Math.sqrt(explicitCi.reduce((s,v)=>s+v**2,0))/explicitCi.length;
+    }else if(rows.length>1){
+      const variance=rows.reduce((s,r)=>s+(r[key]-m)**2,0)/(rows.length-1);
+      ci=1.96*Math.sqrt(variance/rows.length);
+    }else{
+      ci=0;
+    }
     mean.push(m);up.push(m+ci);lo.push(m-ci);
   }
   return {mean,up,lo};
