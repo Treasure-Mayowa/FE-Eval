@@ -3,150 +3,372 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Cross-lingual Persona Binding — Scaling Dashboard</title>
-<script src="scaling_data.js"></script>
+<title>Cross-lingual Persona Binding: Results Dashboard</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
   :root { --bg:#0f1115; --panel:#171a21; --border:#262b36; --text:#e6e9ef; --text-dim:#9aa3b2; --accent:#4f9cf9; }
   * { box-sizing:border-box; }
   body { margin:0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; background:var(--bg); color:var(--text); font-size:14px; }
-  header { padding:20px 28px; border-bottom:1px solid var(--border); }
-  header h1 { margin:0 0 4px; font-size:20px; }
+  header { padding:18px 28px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; }
+  header h1 { margin:0 0 3px; font-size:19px; }
   header p { margin:0; color:var(--text-dim); font-size:13px; }
-  .layout { display:flex; min-height:calc(100vh - 74px); }
-  .sidebar { width:280px; padding:20px; border-right:1px solid var(--border); background:var(--panel); flex-shrink:0; }
+  .tabs { display:flex; gap:4px; flex-wrap:wrap; }
+  .tab-btn { padding:8px 14px; border:1px solid var(--border); border-radius:7px; background:transparent; color:var(--text-dim); cursor:pointer; font-size:13px; }
+  .tab-btn.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .layout { display:flex; min-height:calc(100vh - 88px); }
+  .sidebar { width:290px; padding:20px; border-right:1px solid var(--border); background:var(--panel); flex-shrink:0; }
   .main { flex:1; padding:24px 28px; min-width:0; }
-  .control-group { margin-bottom:22px; }
-  .control-group h3 { margin:0 0 10px; font-size:12px; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-dim); }
+  .control-group { margin-bottom:20px; }
+  .control-group h3 { margin:0 0 9px; font-size:12px; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-dim); }
   .toggle-row { display:flex; gap:6px; flex-wrap:wrap; }
-  .toggle { padding:6px 12px; border:1px solid var(--border); border-radius:6px; background:transparent; color:var(--text-dim); cursor:pointer; font-size:13px; }
+  .toggle { padding:6px 11px; border:1px solid var(--border); border-radius:6px; background:transparent; color:var(--text-dim); cursor:pointer; font-size:13px; }
   .toggle.active { background:var(--accent); color:#fff; border-color:var(--accent); }
-  .lang-list { display:flex; flex-direction:column; gap:4px; max-height:300px; overflow-y:auto; }
+  .lang-list { display:flex; flex-direction:column; gap:3px; max-height:260px; overflow-y:auto; }
   .lang-item { display:flex; align-items:center; gap:8px; padding:4px 6px; border-radius:5px; cursor:pointer; font-size:13px; }
   .lang-item:hover { background:rgba(255,255,255,0.04); }
   .lang-swatch { width:12px; height:12px; border-radius:3px; flex-shrink:0; }
   .lang-item.off { opacity:0.35; }
-  .btn-row { display:flex; gap:6px; margin-bottom:10px; }
+  .btn-row { display:flex; gap:6px; margin-bottom:9px; }
   .btn-sm { flex:1; padding:5px; font-size:12px; border:1px solid var(--border); border-radius:5px; background:transparent; color:var(--text-dim); cursor:pointer; }
-  .chart-wrap { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:20px; height:560px; }
+  .chart-wrap { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:20px; }
   .chart-title { margin:0 0 14px; font-size:15px; font-weight:600; }
   .hint { color:var(--text-dim); font-size:12px; margin-top:12px; }
+  .hidden { display:none; }
+  table.hm { border-collapse:collapse; font-size:11px; }
+  table.hm th { color:var(--text-dim); font-weight:500; padding:3px 4px; text-align:center; white-space:nowrap; }
+  table.hm td.lang { text-align:right; padding-right:8px; color:var(--text); white-space:nowrap; }
+  table.hm td.cell { text-align:center; padding:5px 3px; color:#0a0a0a; font-variant-numeric:tabular-nums; min-width:30px; }
+  select, .sel { background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:6px 8px; font-size:13px; width:100%; margin-bottom:8px; }
+  .sample-card { background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:12px 14px; margin-bottom:10px; }
+  .sample-card .q { color:var(--text-dim); font-size:12px; margin-bottom:6px; }
+  .sample-card .r { font-size:14px; margin-bottom:8px; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:5px; font-size:12px; font-weight:600; }
+  .badge.pref { background:#1c3d2e; color:#3ecf8e; }
+  .badge.opp { background:#3d1c1c; color:#e0524a; }
+  .badge.unk { background:#3a3320; color:#f5c542; }
+  .stat-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:12px; margin-bottom:20px; }
+  .stat { background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:14px; }
+  .stat .v { font-size:22px; font-weight:700; }
+  .stat .l { font-size:12px; color:var(--text-dim); margin-top:2px; }
+  .app-error { margin:24px 28px; padding:16px; border:1px solid #8e3b3b; border-radius:8px; background:#2a1717; color:#f5b5b5; }
 </style>
 </head>
 <body>
 <header>
-  <h1>Cross-lingual Persona Binding</h1>
-  <p>Scaling preference expression across 14 languages · interactive explorer</p>
+  <div><h1>Cross-lingual Persona Binding: Results Dashboard</h1><p> · interactive explorer</p></div>
+  <div class="tabs">
+    <button class="tab-btn active" data-view="lines">Scaling</button>
+    <button class="tab-btn" data-view="heatmap">Heatmap</button>
+    <button class="tab-btn" data-view="regression">Power law</button>
+    <button class="tab-btn" data-view="samples">Samples</button>
+  </div>
 </header>
 <div class="layout">
-  <div class="sidebar">
-    <div class="control-group"><h3>Domain</h3>
-      <div class="toggle-row" id="domain-toggles">
-        <button class="toggle active" data-val="Out of Domain">Out of Domain</button>
-        <button class="toggle" data-val="In Domain">In Domain</button>
-      </div></div>
-    <div class="control-group"><h3>Metric</h3>
-      <div class="toggle-row" id="metric-toggles">
-        <button class="toggle active" data-val="delta">&Delta; over baseline</button>
-        <button class="toggle" data-val="raw">Raw rate</button>
-      </div></div>
-    <div class="control-group"><h3>Level</h3>
-      <div class="toggle-row" id="level-toggles">
-        <button class="toggle active" data-val="AVG">Avg</button>
-        <button class="toggle" data-val="L1">L1</button>
-        <button class="toggle" data-val="L3">L3</button>
-        <button class="toggle" data-val="L4">L4</button>
-        <button class="toggle" data-val="L5">L5</button>
-      </div></div>
-    <div class="control-group"><h3>Confidence Intervals</h3>
-      <div class="toggle-row" id="ci-toggles">
-        <button class="toggle" data-val="on">Show</button>
-        <button class="toggle active" data-val="off">Hide</button>
-      </div></div>
-    <div class="control-group"><h3>Languages</h3>
-      <div class="btn-row">
-        <button class="btn-sm" id="select-all">All</button>
-        <button class="btn-sm" id="select-none">None</button>
-        <button class="btn-sm" id="select-english">English only</button>
-      </div>
-      <div class="lang-list" id="lang-list"></div>
-    </div>
-  </div>
+  <div class="sidebar" id="sidebar"></div>
   <div class="main">
-    <div class="chart-wrap">
-      <p class="chart-title" id="chart-title"></p>
-      <div style="position:relative;height:480px;"><canvas id="chart"></canvas></div>
+    <div id="view-lines">
+      <div class="chart-wrap" style="height:580px;">
+        <p class="chart-title" id="chart-title"></p>
+        <div style="position:relative;height:500px;"><canvas id="chart"></canvas></div>
+      </div>
+      <p class="hint">Click languages to toggle. Select multiple levels to overlay them. CIs clearest with few series shown.</p>
     </div>
-    <p class="hint">Click a language to toggle it. CIs are clearest with one or a few languages selected. Level "Avg" averages L1/L3/L4/L5.</p>
+    <div id="view-heatmap" class="hidden">
+      <div class="chart-wrap">
+        <p class="chart-title" id="hm-title"></p>
+        <div id="hm-container" style="overflow-x:auto;"></div>
+      </div>
+      <p class="hint">Rows = languages (addition order), columns = N (language added at that step). Black outline marks each language's anchor step.</p>
+    </div>
+    <div id="view-regression" class="hidden">
+      <div class="stat-grid" id="reg-stats"></div>
+      <div class="chart-wrap" style="height:520px;">
+        <p class="chart-title" id="reg-title"></p>
+        <div style="position:relative;height:440px;"><canvas id="reg-chart"></canvas></div>
+      </div>
+      <p class="hint">Log-log fit L(N)=a·N^(−b) on global average (1−preference rate). Negative slope means preference improves with N.</p>
+    </div>
+    <div id="view-samples" class="hidden">
+      <div class="chart-wrap">
+        <p class="chart-title">Sample explorer</p>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
+          <select id="s-lang" class="sel" style="width:auto;"></select>
+          <select id="s-level" class="sel" style="width:auto;"></select>
+          <select id="s-n" class="sel" style="width:auto;"></select>
+          <select id="s-domain" class="sel" style="width:auto;"></select>
+          <select id="s-judge" class="sel" style="width:auto;"></select>
+        </div>
+        <div id="samples-container"></div>
+      </div>
+    </div>
   </div>
 </div>
+<div id="app-error" class="app-error hidden" role="alert"></div>
+<script src="scaling_data.js"></script>
+<script src="sample_data.js"></script>
 <script>
-const DATA = window.SCALING_DATA || generateSampleData();
-function generateSampleData() {
-  const langs = ['English','French','Russian','German','Chinese','Arabic','Yoruba','Hindi','Spanish','Dutch','Ukrainian','Hebrew','Bengali','Romanian','Nepali'];
-  const addedAt = {English:0,French:1,Russian:2,German:3,Chinese:4,Arabic:5,Yoruba:6,Hindi:7,Spanish:8,Dutch:9,Ukrainian:10,Hebrew:11,Bengali:12,Romanian:13,Nepali:14};
-  const levels = ['L1','L3','L4','L5']; const rows = [];
-  for (const domain of ['In Domain','Out of Domain']) for (const lang of langs) for (const level of levels) for (let N=0;N<=14;N++){
-    const base=50+Math.random()*10, anchored=N>=addedAt[lang];
-    const idB=domain==='In Domain'&&anchored?35:0, oodB=domain==='Out of Domain'&&anchored?8:0;
-    const score=Math.min(99,base+idB+oodB+(Math.random()*8-4)), baseline=45+Math.random()*8;
-    rows.push({language:lang,domain,level,N,score,score_ci:3+Math.random()*3,delta:score-baseline,delta_ci:3+Math.random()*3});
-  }
-  return rows;
+const DATA = window.SCALING_DATA;
+const SAMPLES = window.SAMPLE_DATA || [];
+
+function showAppError(message){
+  const error=document.getElementById('app-error');
+  error.textContent=message;
+  error.classList.remove('hidden');
+  document.querySelector('.layout').classList.add('hidden');
 }
+
 const LANGS=[...new Set(DATA.map(d=>d.language))];
+const ORDER=['English','French','Russian','German','Chinese','Arabic','Yoruba','Hindi','Spanish','Dutch','Ukrainian','Hebrew','Bengali','Romanian','Nepali'].filter(l=>LANGS.includes(l));
+const LANG_ROWS = ORDER.length===LANGS.length?ORDER:LANGS;
+// addition order derived from ORDER (index = N where added)
+const ADDED_AT={}; LANG_ROWS.forEach((l,i)=>ADDED_AT[l]=i);
+const XLABELS = LANG_ROWS.map((l,i)=> i===0 ? `0\n(${l})` : `${i}\n(+${l})`);
+
 const PALETTE=['#4f9cf9','#7bb8ff','#f5a623','#f7c873','#3ecf8e','#8ee6b8','#e0524a','#f58a84','#a06bd8','#c9a8ec','#8b5e3c','#c49a7a','#e857c3','#f4a8de','#7a7f8c'];
 const colorFor={}; LANGS.forEach((l,i)=>colorFor[l]=PALETTE[i%PALETTE.length]);
-function hexToRgba(hex,a){const n=parseInt(hex.slice(1),16);return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;}
-const state={domain:'Out of Domain',metric:'delta',level:'AVG',ci:'off',active:new Set(LANGS)};
-function aggregate(){
+function hexRgba(h,a){const n=parseInt(h.slice(1),16);return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;}
+
+const state={view:'lines',domain:'Out of Domain',metric:'delta',levels:new Set(['AVG']),ci:'off',active:new Set(LANGS)};
+
+// per (lang, level) mean/ci across N
+function series(lang, level){
   const key=state.metric==='delta'?'delta':'score', ciKey=state.metric==='delta'?'delta_ci':'score_ci';
-  const out={};
-  for(const lang of LANGS){
-    const mean=[],upper=[],lower=[];
-    for(let N=0;N<=14;N++){
-      const rows=DATA.filter(d=>d.language===lang&&d.domain===state.domain&&d.N===N&&(state.level==='AVG'?true:d.level===state.level));
-      if(rows.length===0){mean.push(null);upper.push(null);lower.push(null);continue;}
-      const m=rows.reduce((s,r)=>s+r[key],0)/rows.length;
-      const ci=Math.sqrt(rows.reduce((s,r)=>s+(r[ciKey]||0)**2,0))/rows.length;
-      mean.push(m);upper.push(m+ci);lower.push(m-ci);
-    }
-    out[lang]={mean,upper,lower};
+  const mean=[],up=[],lo=[];
+  for(let N=0;N<=14;N++){
+    const rows=DATA.filter(d=>d.language===lang&&d.domain===state.domain&&d.N===N&&(level==='AVG'?true:d.level===level));
+    if(!rows.length){mean.push(null);up.push(null);lo.push(null);continue;}
+    const m=rows.reduce((s,r)=>s+r[key],0)/rows.length;
+    const ci=Math.sqrt(rows.reduce((s,r)=>s+(r[ciKey]||0)**2,0))/rows.length;
+    mean.push(m);up.push(m+ci);lo.push(m-ci);
   }
-  return out;
+  return {mean,up,lo};
 }
-let chart;
-function render(){
-  const agg=aggregate(), shown=LANGS.filter(l=>state.active.has(l)), datasets=[];
-  for(const lang of shown){
-    const a=agg[lang];
-    if(state.ci==='on'){
-      datasets.push({label:lang+'_upper',data:a.upper,borderColor:'transparent',pointRadius:0,fill:'+1',backgroundColor:hexToRgba(colorFor[lang],0.12),tension:0.3,spanGaps:true,_hidden:true});
-      datasets.push({label:lang+'_lower',data:a.lower,borderColor:'transparent',pointRadius:0,fill:false,tension:0.3,spanGaps:true,_hidden:true});
-    }
-    datasets.push({label:lang,data:a.mean,borderColor:colorFor[lang],backgroundColor:colorFor[lang],borderWidth:lang==='English'?3:1.8,pointRadius:2.5,tension:0.3,spanGaps:true});
+
+// ---- SIDEBAR (rebuilt per view) ----
+function buildSidebar(){
+  const sb=document.getElementById('sidebar');
+  if(state.view==='samples'){ sb.innerHTML=''; return; }
+  let html=`
+   <div class="control-group"><h3>Domain</h3><div class="toggle-row" id="domain-toggles">
+     <button class="toggle ${state.domain==='Out of Domain'?'active':''}" data-val="Out of Domain">Out of Domain</button>
+     <button class="toggle ${state.domain==='In Domain'?'active':''}" data-val="In Domain">In Domain</button>
+   </div></div>
+   ${state.view==='regression'?'':`<div class="control-group"><h3>Metric</h3><div class="toggle-row" id="metric-toggles">
+     <button class="toggle ${state.metric==='delta'?'active':''}" data-val="delta">Δ over baseline</button>
+     <button class="toggle ${state.metric==='raw'?'active':''}" data-val="raw">Raw rate</button>
+   </div></div>`}`;
+  if(state.view==='lines'){
+    html+=`<div class="control-group"><h3>Levels (multi-select)</h3><div class="toggle-row" id="level-toggles">
+      ${['AVG','L1','L3','L4','L5'].map(l=>`<button class="toggle ${state.levels.has(l)?'active':''}" data-val="${l}">${l==='AVG'?'Avg':l}</button>`).join('')}
+    </div><button class="btn-sm" id="levels-clear" type="button">Clear</button></div>
+    <div class="control-group"><h3>Confidence Intervals</h3><div class="toggle-row" id="ci-toggles">
+      <button class="toggle ${state.ci==='on'?'active':''}" data-val="on">Show</button>
+      <button class="toggle ${state.ci==='off'?'active':''}" data-val="off">Hide</button>
+    </div></div>
+    <div class="control-group"><h3>Languages</h3>
+      <div class="btn-row"><button class="btn-sm" id="sa">All</button><button class="btn-sm" id="sn">None</button><button class="btn-sm" id="se">English</button></div>
+      <div class="lang-list" id="lang-list"></div></div>`;
   }
-  const labels=Array.from({length:15},(_,i)=>i);
-  const tm=state.metric==='delta'?'Δ over M011 baseline':'Preference rate', tl=state.level==='AVG'?'avg L1/L3/L4/L5':state.level;
+  if(state.view==='heatmap'){
+    html+=`<div class="control-group"><h3>Level</h3><div class="toggle-row" id="level-toggles">
+      ${['AVG','L1','L3','L4','L5'].map(l=>`<button class="toggle ${(state.levels.size===1&&state.levels.has(l))?'active':''}" data-val="${l}">${l==='AVG'?'Avg':l}</button>`).join('')}
+    </div></div>`;
+  }
+  if(state.view==='regression'){
+    html+=`<div class="control-group"><h3>Level</h3><div class="toggle-row" id="level-toggles">
+      ${['AVG','L1','L3','L4','L5'].map(l=>`<button class="toggle ${(state.levels.size===1&&state.levels.has(l))?'active':''}" data-val="${l}">${l==='AVG'?'Avg':l}</button>`).join('')}
+    </div></div>`;
+  }
+  sb.innerHTML=html;
+  wire();
+}
+
+function wire(){
+  const dt=document.getElementById('domain-toggles');
+  if(dt) dt.querySelectorAll('.toggle').forEach(b=>b.onclick=()=>{state.domain=b.dataset.val;buildSidebar();render();});
+  const mt=document.getElementById('metric-toggles');
+  if(mt) mt.querySelectorAll('.toggle').forEach(b=>b.onclick=()=>{state.metric=b.dataset.val;buildSidebar();render();});
+  const lt=document.getElementById('level-toggles');
+  if(lt) lt.querySelectorAll('.toggle').forEach(b=>b.onclick=()=>{
+    const v=b.dataset.val;
+    if(state.view==='lines'){ // multi-select
+      if(state.levels.has(v)) state.levels.delete(v); else state.levels.add(v);
+      if(state.levels.size===0) state.levels.add('AVG');
+    } else { state.levels=new Set([v]); } // single
+    buildSidebar();render();
+  });
+  const lc=document.getElementById('levels-clear');
+  if(lc) lc.onclick=()=>{state.levels=new Set(['AVG']);buildSidebar();render();};
+  const ct=document.getElementById('ci-toggles');
+  if(ct) ct.querySelectorAll('.toggle').forEach(b=>b.onclick=()=>{state.ci=b.dataset.val;buildSidebar();render();});
+  const ll=document.getElementById('lang-list');
+  if(ll){ LANGS.forEach(lang=>{const it=document.createElement('div');it.className='lang-item'+(state.active.has(lang)?'':' off');
+    it.innerHTML=`<span class="lang-swatch" style="background:${colorFor[lang]}"></span>${lang}`;
+    it.onclick=()=>{if(state.active.has(lang)){state.active.delete(lang);it.classList.add('off');}else{state.active.add(lang);it.classList.remove('off');}render();};ll.appendChild(it);});
+  }
+  const sa=document.getElementById('sa'); if(sa) sa.onclick=()=>{LANGS.forEach(l=>state.active.add(l));buildSidebar();render();};
+  const sn=document.getElementById('sn'); if(sn) sn.onclick=()=>{state.active.clear();buildSidebar();render();};
+  const se=document.getElementById('se'); if(se) se.onclick=()=>{state.active=new Set(['English']);buildSidebar();render();};
+}
+
+// ---- LINE VIEW ----
+let chart;
+function renderLines(){
+  const shown=LANGS.filter(l=>state.active.has(l)), levels=[...state.levels], datasets=[];
+  const dash={AVG:[],L1:[6,3],L3:[2,2],L4:[8,3,2,3],L5:[1,3]};
+  for(const lang of shown) for(const level of levels){
+    const s=series(lang,level);
+    const label = levels.length>1 ? `${lang} · ${level==='AVG'?'Avg':level}` : lang;
+    if(state.ci==='on'){
+      datasets.push({label:label+'_u',data:s.up,borderColor:'transparent',pointRadius:0,fill:'+1',backgroundColor:hexRgba(colorFor[lang],0.10),tension:0.3,spanGaps:true,_h:true});
+      datasets.push({label:label+'_l',data:s.lo,borderColor:'transparent',pointRadius:0,fill:false,tension:0.3,spanGaps:true,_h:true});
+    }
+    datasets.push({label,data:s.mean,borderColor:colorFor[lang],backgroundColor:colorFor[lang],borderWidth:lang==='English'?2.6:1.6,borderDash:dash[level]||[],pointRadius:2,tension:0.3,spanGaps:true});
+  }
+  const tm=state.metric==='delta'?'Δ over M011 baseline':'Preference rate';
+  const tl=levels.map(l=>l==='AVG'?'Avg':l).join(', ');
   document.getElementById('chart-title').textContent=`${tm} — ${state.domain} — ${tl}`;
-  const cfg={type:'line',data:{labels,datasets},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'nearest',intersect:false},
-    plugins:{legend:{display:false},tooltip:{filter:it=>!it.dataset._hidden,callbacks:{label:c=>`${c.dataset.label}: ${c.parsed.y?.toFixed(1)}%`}}},
-    scales:{x:{title:{display:true,text:'Number of Languages (N)',color:'#9aa3b2'},ticks:{color:'#9aa3b2'},grid:{color:'#262b36'}},
+  const cfg={type:'line',data:{labels:XLABELS,datasets},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'nearest',intersect:false},
+    plugins:{legend:{display:false},tooltip:{filter:it=>!it.dataset._h,callbacks:{label:c=>`${c.dataset.label}: ${c.parsed.y?.toFixed(1)}%`}}},
+    scales:{x:{ticks:{color:'#9aa3b2',font:{size:9},maxRotation:60,minRotation:60},grid:{color:'#262b36'}},
       y:{title:{display:true,text:state.metric==='delta'?'Δ Preference Rate (%)':'Preference Rate (%)',color:'#9aa3b2'},ticks:{color:'#9aa3b2'},grid:{color:'#262b36'},suggestedMin:state.metric==='delta'?-25:0,suggestedMax:state.metric==='delta'?60:100}}}};
   if(chart)chart.destroy();
   chart=new Chart(document.getElementById('chart'),cfg);
 }
-const zeroLine={id:'zeroLine',afterDraw(c){if(state.metric!=='delta')return;const y=c.scales.y.getPixelForValue(0);const{left,right}=c.chartArea;const ctx=c.ctx;ctx.save();ctx.strokeStyle='#e6e9ef';ctx.setLineDash([5,4]);ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(right,y);ctx.stroke();ctx.restore();}};
-Chart.register(zeroLine);
-function wireToggles(id,key){document.querySelectorAll(`#${id} .toggle`).forEach(btn=>{btn.onclick=()=>{document.querySelectorAll(`#${id} .toggle`).forEach(b=>b.classList.remove('active'));btn.classList.add('active');state[key]=btn.dataset.val;render();};});}
-wireToggles('domain-toggles','domain');wireToggles('metric-toggles','metric');wireToggles('level-toggles','level');wireToggles('ci-toggles','ci');
-const list=document.getElementById('lang-list');
-LANGS.forEach(lang=>{const item=document.createElement('div');item.className='lang-item';item.innerHTML=`<span class="lang-swatch" style="background:${colorFor[lang]}"></span>${lang}`;
-  item.onclick=()=>{if(state.active.has(lang)){state.active.delete(lang);item.classList.add('off');}else{state.active.add(lang);item.classList.remove('off');}render();};list.appendChild(item);});
-document.getElementById('select-all').onclick=()=>{LANGS.forEach(l=>state.active.add(l));document.querySelectorAll('.lang-item').forEach(i=>i.classList.remove('off'));render();};
-document.getElementById('select-none').onclick=()=>{state.active.clear();document.querySelectorAll('.lang-item').forEach(i=>i.classList.add('off'));render();};
-document.getElementById('select-english').onclick=()=>{state.active=new Set(['English']);document.querySelectorAll('.lang-item').forEach(i=>{i.classList.toggle('off',i.textContent.trim()!=='English');});render();};
-render();
+if(window.Chart) Chart.register({id:'zero',afterDraw(c){if(state.metric!=='delta'||state.view!=='lines')return;const y=c.scales.y.getPixelForValue(0);const{left,right}=c.chartArea;const x=c.ctx;x.save();x.strokeStyle='#e6e9ef';x.setLineDash([5,4]);x.lineWidth=1;x.beginPath();x.moveTo(left,y);x.lineTo(right,y);x.stroke();x.restore();}});
+
+// ---- HEATMAP ----
+function cScale(v){
+  if(state.metric==='delta'){const max=50,t=Math.max(-1,Math.min(1,v/max));
+    if(t>=0){return `rgb(${Math.round(230-160*t)},${Math.round(180*t+60)},${Math.round(120-60*t)})`;}
+    const tt=-t;return `rgb(230,${Math.round(200-140*tt)},${Math.round(120-90*tt)})`;
+  } else {const t=Math.max(0,Math.min(1,v/100));return `rgb(${Math.round(240-180*t)},${Math.round(120+90*t)},${Math.round(90-30*t)})`;}
+}
+function renderHeatmap(){
+  const level=[...state.levels][0]||'AVG';
+  const tm=state.metric==='delta'?'Δ over M011 baseline':'Preference rate';
+  document.getElementById('hm-title').textContent=`${tm} — ${state.domain} — ${level==='AVG'?'Avg':level}`;
+  let h='<table class="hm"><thead><tr><th></th>';
+  for(let N=0;N<=14;N++) h+=`<th>${N}</th>`;
+  h+='</tr></thead><tbody>';
+  for(const lang of LANG_ROWS){
+    const s=series(lang,level);
+    h+=`<tr><td class="lang">${lang}</td>`;
+    for(let N=0;N<=14;N++){const v=s.mean[N];
+      if(v==null){h+='<td class="cell"></td>';continue;}
+      const diag=ADDED_AT[lang]===N?'box-shadow:inset 0 0 0 2px #0a0a0a;':'';
+      h+=`<td class="cell" style="background:${cScale(v)};${diag}" title="${lang}, N=${N}: ${v.toFixed(1)}">${v.toFixed(0)}</td>`;
+    }
+    h+='</tr>';
+  }
+  document.getElementById('hm-container').innerHTML=h+'</tbody></table>';
+}
+
+// ---- REGRESSION (power law) ----
+let regChart;
+function fitPowerLaw(){
+  // Fit the documented error-rate model on the raw preference score.
+  const level=[...state.levels][0]||'AVG';
+  const N=[],L=[];
+  for(let n=0;n<=14;n++){
+    const rows=DATA.filter(d=>d.domain===state.domain&&d.N===n&&(level==='AVG'?true:d.level===level));
+    if(!rows.length)continue;
+    const mean=rows.reduce((s,r)=>s+r.score,0)/rows.length/100;
+    if(n>=1){N.push(n);L.push(1-mean);}
+  }
+  const logN=N.map(Math.log), logL=L.map(Math.log);
+  const nn=logN.length, sx=logN.reduce((a,b)=>a+b,0), sy=logL.reduce((a,b)=>a+b,0);
+  const sxx=logN.reduce((a,b)=>a+b*b,0), sxy=logN.reduce((a,b,i)=>a+b*logL[i],0);
+  const slope=(nn*sxy-sx*sy)/(nn*sxx-sx*sx), intercept=(sy-slope*sx)/nn;
+  const pred=logN.map(x=>slope*x+intercept);
+  const ybar=sy/nn, ssres=logL.reduce((a,b,i)=>a+(b-pred[i])**2,0), sstot=logL.reduce((a,b)=>a+(b-ybar)**2,0);
+  const r2=1-ssres/sstot;
+  return {N,L,logN,logL,slope,intercept,r2};
+}
+function renderRegression(){
+  const f=fitPowerLaw();
+  const level=[...state.levels][0]||'AVG';
+  document.getElementById('reg-title').textContent=`Log-log fit L(N)=a·N^(−b) — ${state.domain} — ${level==='AVG'?'Avg':level}`;
+  document.getElementById('reg-stats').innerHTML=`
+    <div class="stat"><div class="v">${f.slope.toFixed(3)}</div><div class="l">Log-log slope (−b)</div></div>
+    <div class="stat"><div class="v">${f.r2.toFixed(3)}</div><div class="l">R²</div></div>
+    <div class="stat"><div class="v">${f.slope<0?'Improves':'Degrades'}</div><div class="l">Direction with N</div></div>`;
+  const scatter=f.logN.map((x,i)=>({x,y:f.logL[i]}));
+  const line=f.logN.map(x=>({x,y:f.slope*x+f.intercept}));
+  const cfg={type:'scatter',data:{datasets:[
+    {label:'Observed',data:scatter,backgroundColor:'#4f9cf9',pointRadius:5},
+    {label:'Fit',data:line,type:'line',borderColor:'#e0524a',borderDash:[6,4],pointRadius:0,borderWidth:2}
+  ]},options:{responsive:true,maintainAspectRatio:false,
+    plugins:{legend:{labels:{color:'#e6e9ef'}}},
+    scales:{x:{title:{display:true,text:'log(N languages)',color:'#9aa3b2'},ticks:{color:'#9aa3b2'},grid:{color:'#262b36'}},
+      y:{title:{display:true,text:'log(1 − preference rate)',color:'#9aa3b2'},ticks:{color:'#9aa3b2'},grid:{color:'#262b36'}}}}};
+  if(regChart)regChart.destroy();
+  regChart=new Chart(document.getElementById('reg-chart'),cfg);
+}
+
+// ---- SAMPLES ----
+function initSamples(){
+  const langs=[...new Set(SAMPLES.map(s=>s.language))];
+  const levels=[...new Set(SAMPLES.map(s=>s.level))];
+  const ns=Array.from({length:15},(_,i)=>i);
+  const domains=[...new Set(SAMPLES.map(s=>s.domain))];
+  const judges=['Preference','Opposite','Unknown'];
+  const fill=(id,arr)=>{document.getElementById(id).innerHTML=arr.map(v=>`<option value="${v}">${v}</option>`).join('');};
+  fill('s-lang',langs);
+  fill('s-level',levels);
+  fill('s-n',ns);
+  fill('s-domain',domains);
+  fill('s-judge',judges);
+  document.getElementById('s-lang').value=langs[0]||'';
+  document.getElementById('s-level').value=levels[0]||'';
+  document.getElementById('s-n').value=14;
+  document.getElementById('s-domain').value=domains[0]||'';
+  document.getElementById('s-judge').value='Preference';
+  ['s-lang','s-level','s-n','s-domain','s-judge'].forEach(id=>document.getElementById(id).onchange=renderSamples);
+  renderSamples();
+}
+function renderSamples(){
+  const lang=document.getElementById('s-lang').value, level=document.getElementById('s-level').value;
+  const nValue=document.getElementById('s-n').value, domain=document.getElementById('s-domain').value;
+  const judge=document.getElementById('s-judge').value;
+  const judgeCategory=j=>{
+    const value=String(j||'').trim().toLowerCase();
+    return value==='a'||value==='preference'?'Preference':value==='b'||value==='opposite'?'Opposite':'Unknown';
+  };
+  const rows=SAMPLES.filter(s=>(lang==='All'||s.language===lang)
+    &&s.level===level
+    &&Number(s.N)===Number(nValue)
+    &&s.domain===domain
+    &&judgeCategory(s.judge)===judge);
+  const badge=j=>judgeCategory(j)==='Preference'?'<span class="badge pref">preference</span>':judgeCategory(j)==='Opposite'?'<span class="badge opp">opposite</span>':'<span class="badge unk">unknown</span>';
+  document.getElementById('samples-container').innerHTML = rows.length?rows.map(r=>`
+    <div class="sample-card"><div class="q">Q: ${r.question||''}</div><div class="r">${r.response||''}</div>${badge(r.judge)}</div>`).join('')
+    : '<p class="hint">No sample data for this combination. Export SAMPLE_DATA to populate this tab.</p>';
+}
+
+function render(){
+  if(state.view==='lines')renderLines();
+  else if(state.view==='heatmap')renderHeatmap();
+  else if(state.view==='regression')renderRegression();
+  else if(state.view==='samples')renderSamples();
+}
+
+document.querySelectorAll('.tab-btn').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('.tab-btn').forEach(x=>x.classList.remove('active'));b.classList.add('active');
+  state.view=b.dataset.view;
+  ['lines','heatmap','regression','samples'].forEach(v=>document.getElementById('view-'+v).classList.toggle('hidden',v!==state.view));
+  buildSidebar();render();
+});
+
+if(!window.Chart){
+  showAppError('Chart.js could not be loaded. Check your connection or CDN access.');
+}else if(!Array.isArray(DATA)||!DATA.length){
+  showAppError('Scaling data could not be loaded. Open this page with scaling_data.js beside it.');
+}else{
+  buildSidebar();
+  initSamples();
+  render();
+}
 </script>
 </body>
 </html>
