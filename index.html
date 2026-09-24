@@ -42,6 +42,7 @@
   .sample-card { background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:12px 14px; margin-bottom:10px; }
   .sample-card .q { color:var(--text-dim); font-size:12px; margin-bottom:6px; }
   .sample-card .r { font-size:14px; margin-bottom:8px; }
+  .sample-card .meta { color:var(--text-dim); font-size:11px; margin-top:6px; }
   .badge { display:inline-block; padding:2px 8px; border-radius:5px; font-size:12px; font-weight:600; }
   .badge.pref { background:#1c3d2e; color:#3ecf8e; }
   .badge.opp { background:#3d1c1c; color:#e0524a; }
@@ -55,7 +56,7 @@
 </head>
 <body>
 <header>
-  <div><h1>Cross-lingual Persona Binding: Results Dashboard</h1><p> · interactive explorer</p></div>
+  <div><h1>Cross-lingual Persona Binding: Results Dashboard</h1><p>Interactive explorer ·</p></div>
   <div class="tabs">
     <button class="tab-btn active" data-view="lines">Scaling</button>
     <button class="tab-btn" data-view="heatmap">Heatmap</button>
@@ -71,14 +72,14 @@
         <p class="chart-title" id="chart-title"></p>
         <div style="position:relative;height:500px;"><canvas id="chart"></canvas></div>
       </div>
-      <p class="hint">Click languages to toggle. Select multiple levels to overlay them. CIs clearest with few series shown.</p>
+      <p class="hint">Click languages to toggle. Multi-select levels to overlay. In "Compare both", solid = first model, dashed = second.</p>
     </div>
     <div id="view-heatmap" class="hidden">
       <div class="chart-wrap">
         <p class="chart-title" id="hm-title"></p>
         <div id="hm-container" style="overflow-x:auto;"></div>
       </div>
-      <p class="hint">Rows = languages (addition order), columns = N (language added at that step). Black outline marks each language's anchor step.</p>
+      <p class="hint">Rows = languages (addition order), columns = N. Black outline marks each language's anchor step. Pick a single model to view.</p>
     </div>
     <div id="view-regression" class="hidden">
       <div class="stat-grid" id="reg-stats"></div>
@@ -86,12 +87,13 @@
         <p class="chart-title" id="reg-title"></p>
         <div style="position:relative;height:440px;"><canvas id="reg-chart"></canvas></div>
       </div>
-      <p class="hint">Log-log fit L(N)=a·N^(−b) on global average (1−preference rate). Negative slope means preference improves with N.</p>
+      <p class="hint">Log-log fit on global average (1−preference rate). Negative slope = preference improves with N. In compare mode both models are fitted.</p>
     </div>
     <div id="view-samples" class="hidden">
       <div class="chart-wrap">
         <p class="chart-title">Sample explorer</p>
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
+          <select id="s-model" class="sel" style="width:auto;"></select>
           <select id="s-lang" class="sel" style="width:auto;"></select>
           <select id="s-level" class="sel" style="width:auto;"></select>
           <select id="s-n" class="sel" style="width:auto;"></select>
@@ -109,59 +111,48 @@
 <script>
 const DATA = window.SCALING_DATA;
 const SAMPLES = window.SAMPLE_DATA || [];
+function showAppError(m){const e=document.getElementById('app-error');e.textContent=m;e.classList.remove('hidden');document.querySelector('.layout').classList.add('hidden');}
+function modelOf(r){return r.model||r.model_name;}
 
-function showAppError(message){
-  const error=document.getElementById('app-error');
-  error.textContent=message;
-  error.classList.remove('hidden');
-  document.querySelector('.layout').classList.add('hidden');
-}
-
-const LANGS=[...new Set(DATA.map(d=>d.language))];
+const MODELS = DATA ? [...new Set(DATA.map(modelOf))] : [];
+const LANGS = DATA ? [...new Set(DATA.map(d=>d.language))] : [];
 const ORDER=['English','French','Russian','German','Chinese','Arabic','Yoruba','Hindi','Spanish','Dutch','Ukrainian','Hebrew','Bengali','Romanian','Nepali'].filter(l=>LANGS.includes(l));
 const LANG_ROWS = ORDER.length===LANGS.length?ORDER:LANGS;
-// addition order derived from ORDER (index = N where added)
 const ADDED_AT={}; LANG_ROWS.forEach((l,i)=>ADDED_AT[l]=i);
 const XLABELS = LANG_ROWS.map((l,i)=> i===0 ? `0\n(${l})` : `${i}\n(+${l})`);
-
 const PALETTE=['#4f9cf9','#7bb8ff','#f5a623','#f7c873','#3ecf8e','#8ee6b8','#e0524a','#f58a84','#a06bd8','#c9a8ec','#8b5e3c','#c49a7a','#e857c3','#f4a8de','#7a7f8c'];
 const colorFor={}; LANGS.forEach((l,i)=>colorFor[l]=PALETTE[i%PALETTE.length]);
 function hexRgba(h,a){const n=parseInt(h.slice(1),16);return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;}
 
-const state={view:'lines',domain:'Out of Domain',metric:'delta',levels:new Set(['AVG']),ci:'off',active:new Set(LANGS)};
+const state={view:'lines',domain:'Out of Domain',metric:'delta',model:'compare',levels:new Set(['AVG']),ci:'off',active:new Set(LANGS)};
 
-// per (lang, level) mean/ci across N
-function series(lang, level){
+function series(lang, level, model){
   const key=state.metric==='delta'?'delta':'score', ciKey=state.metric==='delta'?'delta_ci':'score_ci';
   const mean=[],up=[],lo=[];
   for(let N=0;N<=14;N++){
-    const rows=DATA.filter(d=>d.language===lang&&d.domain===state.domain&&d.N===N&&(level==='AVG'?true:d.level===level));
+    const rows=DATA.filter(d=>modelOf(d)===model&&d.language===lang&&d.domain===state.domain&&d.N===N&&(level==='AVG'?true:d.level===level));
     if(!rows.length){mean.push(null);up.push(null);lo.push(null);continue;}
     const m=rows.reduce((s,r)=>s+r[key],0)/rows.length;
-    const explicitCi=rows.filter(r=>Number.isFinite(Number(r[ciKey]))).map(r=>Number(r[ciKey]));
-    let ci;
-    if(explicitCi.length){
-      ci=Math.sqrt(explicitCi.reduce((s,v)=>s+v**2,0))/explicitCi.length;
-    }else if(rows.length>1){
-      const variance=rows.reduce((s,r)=>s+(r[key]-m)**2,0)/(rows.length-1);
-      ci=1.96*Math.sqrt(variance/rows.length);
-    }else{
-      ci=0;
-    }
+    const ex=rows.filter(r=>Number.isFinite(Number(r[ciKey]))).map(r=>Number(r[ciKey]));
+    let ci = ex.length ? Math.sqrt(ex.reduce((s,v)=>s+v**2,0))/ex.length
+      : (rows.length>1 ? 1.96*Math.sqrt(rows.reduce((s,r)=>s+(r[key]-m)**2,0)/(rows.length-1)/rows.length) : 0);
     mean.push(m);up.push(m+ci);lo.push(m-ci);
   }
   return {mean,up,lo};
 }
 
-// ---- SIDEBAR (rebuilt per view) ----
 function buildSidebar(){
   const sb=document.getElementById('sidebar');
   if(state.view==='samples'){ sb.innerHTML=''; return; }
+  const modelOptions = state.view==='lines'
+    ? `<option value="compare" ${state.model==='compare'?'selected':''}>Compare both</option>` + MODELS.map(m=>`<option value="${m}" ${state.model===m?'selected':''}>${m}</option>`).join('')
+    : MODELS.map(m=>`<option value="${m}" ${(state.model===m||state.model==='compare'&&m===MODELS[0])?'selected':''}>${m}</option>`).join('');
   let html=`
    <div class="control-group"><h3>Domain</h3><div class="toggle-row" id="domain-toggles">
      <button class="toggle ${state.domain==='Out of Domain'?'active':''}" data-val="Out of Domain">Out of Domain</button>
      <button class="toggle ${state.domain==='In Domain'?'active':''}" data-val="In Domain">In Domain</button>
    </div></div>
+   <div class="control-group"><h3>Model</h3><select id="model-select" class="sel">${modelOptions}</select></div>
    ${state.view==='regression'?'':`<div class="control-group"><h3>Metric</h3><div class="toggle-row" id="metric-toggles">
      <button class="toggle ${state.metric==='delta'?'active':''}" data-val="delta">Δ over baseline</button>
      <button class="toggle ${state.metric==='raw'?'active':''}" data-val="raw">Raw rate</button>
@@ -169,7 +160,7 @@ function buildSidebar(){
   if(state.view==='lines'){
     html+=`<div class="control-group"><h3>Levels (multi-select)</h3><div class="toggle-row" id="level-toggles">
       ${['AVG','L1','L3','L4','L5'].map(l=>`<button class="toggle ${state.levels.has(l)?'active':''}" data-val="${l}">${l==='AVG'?'Avg':l}</button>`).join('')}
-    </div><button class="btn-sm" id="levels-clear" type="button">Clear</button></div>
+    </div></div>
     <div class="control-group"><h3>Confidence Intervals</h3><div class="toggle-row" id="ci-toggles">
       <button class="toggle ${state.ci==='on'?'active':''}" data-val="on">Show</button>
       <button class="toggle ${state.ci==='off'?'active':''}" data-val="off">Hide</button>
@@ -178,21 +169,16 @@ function buildSidebar(){
       <div class="btn-row"><button class="btn-sm" id="sa">All</button><button class="btn-sm" id="sn">None</button><button class="btn-sm" id="se">English</button></div>
       <div class="lang-list" id="lang-list"></div></div>`;
   }
-  if(state.view==='heatmap'){
+  if(state.view==='heatmap'||state.view==='regression'){
     html+=`<div class="control-group"><h3>Level</h3><div class="toggle-row" id="level-toggles">
       ${['AVG','L1','L3','L4','L5'].map(l=>`<button class="toggle ${(state.levels.size===1&&state.levels.has(l))?'active':''}" data-val="${l}">${l==='AVG'?'Avg':l}</button>`).join('')}
     </div></div>`;
   }
-  if(state.view==='regression'){
-    html+=`<div class="control-group"><h3>Level</h3><div class="toggle-row" id="level-toggles">
-      ${['AVG','L1','L3','L4','L5'].map(l=>`<button class="toggle ${(state.levels.size===1&&state.levels.has(l))?'active':''}" data-val="${l}">${l==='AVG'?'Avg':l}</button>`).join('')}
-    </div></div>`;
-  }
-  sb.innerHTML=html;
-  wire();
+  sb.innerHTML=html; wire();
 }
-
 function wire(){
+  const ms=document.getElementById('model-select');
+  if(ms) ms.onchange=()=>{state.model=ms.value;buildSidebar();render();};
   const dt=document.getElementById('domain-toggles');
   if(dt) dt.querySelectorAll('.toggle').forEach(b=>b.onclick=()=>{state.domain=b.dataset.val;buildSidebar();render();});
   const mt=document.getElementById('metric-toggles');
@@ -200,68 +186,65 @@ function wire(){
   const lt=document.getElementById('level-toggles');
   if(lt) lt.querySelectorAll('.toggle').forEach(b=>b.onclick=()=>{
     const v=b.dataset.val;
-    if(state.view==='lines'){ // multi-select
-      if(state.levels.has(v)) state.levels.delete(v); else state.levels.add(v);
-      if(state.levels.size===0) state.levels.add('AVG');
-    } else { state.levels=new Set([v]); } // single
+    if(state.view==='lines'){ if(state.levels.has(v)) state.levels.delete(v); else state.levels.add(v); if(!state.levels.size) state.levels.add('AVG'); }
+    else { state.levels=new Set([v]); }
     buildSidebar();render();
   });
-  const lc=document.getElementById('levels-clear');
-  if(lc) lc.onclick=()=>{state.levels=new Set(['AVG']);buildSidebar();render();};
   const ct=document.getElementById('ci-toggles');
   if(ct) ct.querySelectorAll('.toggle').forEach(b=>b.onclick=()=>{state.ci=b.dataset.val;buildSidebar();render();});
   const ll=document.getElementById('lang-list');
-  if(ll){ LANGS.forEach(lang=>{const it=document.createElement('div');it.className='lang-item'+(state.active.has(lang)?'':' off');
+  if(ll) LANGS.forEach(lang=>{const it=document.createElement('div');it.className='lang-item'+(state.active.has(lang)?'':' off');
     it.innerHTML=`<span class="lang-swatch" style="background:${colorFor[lang]}"></span>${lang}`;
     it.onclick=()=>{if(state.active.has(lang)){state.active.delete(lang);it.classList.add('off');}else{state.active.add(lang);it.classList.remove('off');}render();};ll.appendChild(it);});
-  }
   const sa=document.getElementById('sa'); if(sa) sa.onclick=()=>{LANGS.forEach(l=>state.active.add(l));buildSidebar();render();};
   const sn=document.getElementById('sn'); if(sn) sn.onclick=()=>{state.active.clear();buildSidebar();render();};
   const se=document.getElementById('se'); if(se) se.onclick=()=>{state.active=new Set(['English']);buildSidebar();render();};
 }
 
-// ---- LINE VIEW ----
 let chart;
 function renderLines(){
   const shown=LANGS.filter(l=>state.active.has(l)), levels=[...state.levels], datasets=[];
-  const dash={AVG:[],L1:[6,3],L3:[2,2],L4:[8,3,2,3],L5:[1,3]};
-  for(const lang of shown) for(const level of levels){
-    const s=series(lang,level);
-    const label = levels.length>1 ? `${lang} · ${level==='AVG'?'Avg':level}` : lang;
+  const modelsToShow = state.model==='compare' ? MODELS : [state.model];
+  const modelDash={}; modelsToShow.forEach((m,i)=>modelDash[m]= i===0?[]:[7,4]);
+  for(const lang of shown) for(const level of levels) for(const model of modelsToShow){
+    const s=series(lang,level,model);
+    let label=lang;
+    if(levels.length>1) label+=` · ${level==='AVG'?'Avg':level}`;
+    if(modelsToShow.length>1) label+=` · ${model}`;
     if(state.ci==='on'){
-      datasets.push({label:label+'_u',data:s.up,borderColor:'transparent',pointRadius:0,fill:'+1',backgroundColor:hexRgba(colorFor[lang],0.10),tension:0.3,spanGaps:true,_h:true});
+      datasets.push({label:label+'_u',data:s.up,borderColor:'transparent',pointRadius:0,fill:'+1',backgroundColor:hexRgba(colorFor[lang],0.08),tension:0.3,spanGaps:true,_h:true});
       datasets.push({label:label+'_l',data:s.lo,borderColor:'transparent',pointRadius:0,fill:false,tension:0.3,spanGaps:true,_h:true});
     }
-    datasets.push({label,data:s.mean,borderColor:colorFor[lang],backgroundColor:colorFor[lang],borderWidth:lang==='English'?2.6:1.6,borderDash:dash[level]||[],pointRadius:2,tension:0.3,spanGaps:true});
+    datasets.push({label,data:s.mean,borderColor:colorFor[lang],backgroundColor:colorFor[lang],borderWidth:lang==='English'?2.6:1.6,borderDash:modelDash[model]||[],pointRadius:2,tension:0.3,spanGaps:true});
   }
   const tm=state.metric==='delta'?'Δ over M011 baseline':'Preference rate';
   const tl=levels.map(l=>l==='AVG'?'Avg':l).join(', ');
-  document.getElementById('chart-title').textContent=`${tm} — ${state.domain} — ${tl}`;
+  const mn = state.model==='compare' ? ` · solid=${MODELS[0]}, dashed=${MODELS[1]}` : ` · ${state.model}`;
+  document.getElementById('chart-title').textContent=`${tm} — ${state.domain} — ${tl}${mn}`;
   const cfg={type:'line',data:{labels:XLABELS,datasets},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'nearest',intersect:false},
     plugins:{legend:{display:false},tooltip:{filter:it=>!it.dataset._h,callbacks:{label:c=>`${c.dataset.label}: ${c.parsed.y?.toFixed(1)}%`}}},
     scales:{x:{ticks:{color:'#9aa3b2',font:{size:9},maxRotation:60,minRotation:60},grid:{color:'#262b36'}},
       y:{title:{display:true,text:state.metric==='delta'?'Δ Preference Rate (%)':'Preference Rate (%)',color:'#9aa3b2'},ticks:{color:'#9aa3b2'},grid:{color:'#262b36'},suggestedMin:state.metric==='delta'?-25:0,suggestedMax:state.metric==='delta'?60:100}}}};
-  if(chart)chart.destroy();
-  chart=new Chart(document.getElementById('chart'),cfg);
+  if(chart)chart.destroy(); chart=new Chart(document.getElementById('chart'),cfg);
 }
 if(window.Chart) Chart.register({id:'zero',afterDraw(c){if(state.metric!=='delta'||state.view!=='lines')return;const y=c.scales.y.getPixelForValue(0);const{left,right}=c.chartArea;const x=c.ctx;x.save();x.strokeStyle='#e6e9ef';x.setLineDash([5,4]);x.lineWidth=1;x.beginPath();x.moveTo(left,y);x.lineTo(right,y);x.stroke();x.restore();}});
 
-// ---- HEATMAP ----
 function cScale(v){
   if(state.metric==='delta'){const max=50,t=Math.max(-1,Math.min(1,v/max));
-    if(t>=0){return `rgb(${Math.round(230-160*t)},${Math.round(180*t+60)},${Math.round(120-60*t)})`;}
+    if(t>=0) return `rgb(${Math.round(230-160*t)},${Math.round(180*t+60)},${Math.round(120-60*t)})`;
     const tt=-t;return `rgb(230,${Math.round(200-140*tt)},${Math.round(120-90*tt)})`;
-  } else {const t=Math.max(0,Math.min(1,v/100));return `rgb(${Math.round(240-180*t)},${Math.round(120+90*t)},${Math.round(90-30*t)})`;}
+  } const t=Math.max(0,Math.min(1,v/100));return `rgb(${Math.round(240-180*t)},${Math.round(120+90*t)},${Math.round(90-30*t)})`;
 }
 function renderHeatmap(){
+  const model = state.model==='compare' ? MODELS[0] : state.model;
   const level=[...state.levels][0]||'AVG';
   const tm=state.metric==='delta'?'Δ over M011 baseline':'Preference rate';
-  document.getElementById('hm-title').textContent=`${tm} — ${state.domain} — ${level==='AVG'?'Avg':level}`;
+  document.getElementById('hm-title').textContent=`${tm} — ${state.domain} — ${level==='AVG'?'Avg':level} — ${model}`;
   let h='<table class="hm"><thead><tr><th></th>';
   for(let N=0;N<=14;N++) h+=`<th>${N}</th>`;
   h+='</tr></thead><tbody>';
   for(const lang of LANG_ROWS){
-    const s=series(lang,level);
+    const s=series(lang,level,model);
     h+=`<tr><td class="lang">${lang}</td>`;
     for(let N=0;N<=14;N++){const v=s.mean[N];
       if(v==null){h+='<td class="cell"></td>';continue;}
@@ -273,86 +256,70 @@ function renderHeatmap(){
   document.getElementById('hm-container').innerHTML=h+'</tbody></table>';
 }
 
-// ---- REGRESSION (power law) ----
 let regChart;
-function fitPowerLaw(){
-  // Fit the documented error-rate model on the raw preference score.
-  const level=[...state.levels][0]||'AVG';
+function fitOne(model, level){
   const N=[],L=[];
   for(let n=0;n<=14;n++){
-    const rows=DATA.filter(d=>d.domain===state.domain&&d.N===n&&(level==='AVG'?true:d.level===level));
+    const rows=DATA.filter(d=>modelOf(d)===model&&d.domain===state.domain&&d.N===n&&(level==='AVG'?true:d.level===level));
     if(!rows.length)continue;
     const mean=rows.reduce((s,r)=>s+r.score,0)/rows.length/100;
     if(n>=1){N.push(n);L.push(1-mean);}
   }
-  const logN=N.map(Math.log), logL=L.map(Math.log);
-  const nn=logN.length, sx=logN.reduce((a,b)=>a+b,0), sy=logL.reduce((a,b)=>a+b,0);
+  const logN=N.map(Math.log), logL=L.map(Math.log), nn=logN.length;
+  const sx=logN.reduce((a,b)=>a+b,0), sy=logL.reduce((a,b)=>a+b,0);
   const sxx=logN.reduce((a,b)=>a+b*b,0), sxy=logN.reduce((a,b,i)=>a+b*logL[i],0);
   const slope=(nn*sxy-sx*sy)/(nn*sxx-sx*sx), intercept=(sy-slope*sx)/nn;
-  const pred=logN.map(x=>slope*x+intercept);
-  const ybar=sy/nn, ssres=logL.reduce((a,b,i)=>a+(b-pred[i])**2,0), sstot=logL.reduce((a,b)=>a+(b-ybar)**2,0);
-  const r2=1-ssres/sstot;
-  return {N,L,logN,logL,slope,intercept,r2};
+  const pred=logN.map(x=>slope*x+intercept), ybar=sy/nn;
+  const ssr=logL.reduce((a,b,i)=>a+(b-pred[i])**2,0), sst=logL.reduce((a,b)=>a+(b-ybar)**2,0);
+  return {logN,logL,slope,intercept,r2:1-ssr/sst};
 }
 function renderRegression(){
-  const f=fitPowerLaw();
   const level=[...state.levels][0]||'AVG';
-  document.getElementById('reg-title').textContent=`Log-log fit L(N)=a·N^(−b) — ${state.domain} — ${level==='AVG'?'Avg':level}`;
-  document.getElementById('reg-stats').innerHTML=`
-    <div class="stat"><div class="v">${f.slope.toFixed(3)}</div><div class="l">Log-log slope (−b)</div></div>
-    <div class="stat"><div class="v">${f.r2.toFixed(3)}</div><div class="l">R²</div></div>
-    <div class="stat"><div class="v">${f.slope<0?'Improves':'Degrades'}</div><div class="l">Direction with N</div></div>`;
-  const scatter=f.logN.map((x,i)=>({x,y:f.logL[i]}));
-  const line=f.logN.map(x=>({x,y:f.slope*x+f.intercept}));
-  const cfg={type:'scatter',data:{datasets:[
-    {label:'Observed',data:scatter,backgroundColor:'#4f9cf9',pointRadius:5},
-    {label:'Fit',data:line,type:'line',borderColor:'#e0524a',borderDash:[6,4],pointRadius:0,borderWidth:2}
-  ]},options:{responsive:true,maintainAspectRatio:false,
+  const modelsToShow = state.model==='compare' ? MODELS : [state.model];
+  const fits = modelsToShow.map(m=>({model:m, ...fitOne(m,level)}));
+  document.getElementById('reg-title').textContent=`Log-log fit — ${state.domain} — ${level==='AVG'?'Avg':level}`;
+  document.getElementById('reg-stats').innerHTML = fits.map(f=>`
+    <div class="stat"><div class="v">${f.slope.toFixed(3)}</div><div class="l">${f.model} slope (−b)</div></div>
+    <div class="stat"><div class="v">${f.r2.toFixed(3)}</div><div class="l">${f.model} R²</div></div>`).join('');
+  const cols=['#4f9cf9','#f5a623'];
+  const datasets=[];
+  fits.forEach((f,i)=>{
+    datasets.push({label:f.model+' obs',data:f.logN.map((x,j)=>({x,y:f.logL[j]})),backgroundColor:cols[i],pointRadius:5});
+    datasets.push({label:f.model+' fit',type:'line',data:f.logN.map(x=>({x,y:f.slope*x+f.intercept})),borderColor:cols[i],borderDash:[6,4],pointRadius:0,borderWidth:2});
+  });
+  const cfg={type:'scatter',data:{datasets},options:{responsive:true,maintainAspectRatio:false,
     plugins:{legend:{labels:{color:'#e6e9ef'}}},
     scales:{x:{title:{display:true,text:'log(N languages)',color:'#9aa3b2'},ticks:{color:'#9aa3b2'},grid:{color:'#262b36'}},
       y:{title:{display:true,text:'log(1 − preference rate)',color:'#9aa3b2'},ticks:{color:'#9aa3b2'},grid:{color:'#262b36'}}}}};
-  if(regChart)regChart.destroy();
-  regChart=new Chart(document.getElementById('reg-chart'),cfg);
+  if(regChart)regChart.destroy(); regChart=new Chart(document.getElementById('reg-chart'),cfg);
 }
 
-// ---- SAMPLES ----
 function initSamples(){
+  if(!SAMPLES.length) return;
+  const models=['all',...new Set(SAMPLES.map(s=>modelOf(s)||'unknown'))];
   const langs=[...new Set(SAMPLES.map(s=>s.language))];
   const levels=[...new Set(SAMPLES.map(s=>s.level))];
   const ns=Array.from({length:15},(_,i)=>i);
   const domains=[...new Set(SAMPLES.map(s=>s.domain))];
   const judges=['Preference','Opposite','Unknown'];
   const fill=(id,arr)=>{document.getElementById(id).innerHTML=arr.map(v=>`<option value="${v}">${v}</option>`).join('');};
-  fill('s-lang',langs);
-  fill('s-level',levels);
-  fill('s-n',ns);
-  fill('s-domain',domains);
-  fill('s-judge',judges);
-  document.getElementById('s-lang').value=langs[0]||'';
-  document.getElementById('s-level').value=levels[0]||'';
+  fill('s-model',models);fill('s-lang',langs);fill('s-level',levels);fill('s-n',ns);fill('s-domain',domains);fill('s-judge',judges);
   document.getElementById('s-n').value=14;
-  document.getElementById('s-domain').value=domains[0]||'';
-  document.getElementById('s-judge').value='Preference';
-  ['s-lang','s-level','s-n','s-domain','s-judge'].forEach(id=>document.getElementById(id).onchange=renderSamples);
+  document.getElementById('s-domain').value=domains.includes('Out of Domain')?'Out of Domain':domains[0];
+  document.getElementById('s-judge').value='Unknown';
+  ['s-model','s-lang','s-level','s-n','s-domain','s-judge'].forEach(id=>document.getElementById(id).onchange=renderSamples);
   renderSamples();
 }
+function jcat(j){const v=String(j||'').trim().toLowerCase();return v==='a'||v==='preference'?'Preference':v==='b'||v==='opposite'?'Opposite':'Unknown';}
 function renderSamples(){
-  const lang=document.getElementById('s-lang').value, level=document.getElementById('s-level').value;
-  const nValue=document.getElementById('s-n').value, domain=document.getElementById('s-domain').value;
-  const judge=document.getElementById('s-judge').value;
-  const judgeCategory=j=>{
-    const value=String(j||'').trim().toLowerCase();
-    return value==='a'||value==='preference'?'Preference':value==='b'||value==='opposite'?'Opposite':'Unknown';
-  };
-  const rows=SAMPLES.filter(s=>(lang==='All'||s.language===lang)
-    &&s.level===level
-    &&Number(s.N)===Number(nValue)
-    &&s.domain===domain
-    &&judgeCategory(s.judge)===judge);
-  const badge=j=>judgeCategory(j)==='Preference'?'<span class="badge pref">preference</span>':judgeCategory(j)==='Opposite'?'<span class="badge opp">opposite</span>':'<span class="badge unk">unknown</span>';
+  if(!SAMPLES.length){document.getElementById('samples-container').innerHTML='<p class="hint">No sample data loaded. Export sample_data.js to populate this tab.</p>';return;}
+  const model=document.getElementById('s-model').value, lang=document.getElementById('s-lang').value, level=document.getElementById('s-level').value;
+  const N=+document.getElementById('s-n').value, domain=document.getElementById('s-domain').value, judge=document.getElementById('s-judge').value;
+  const rows=SAMPLES.filter(s=>(model==='all'||modelOf(s)===model)&&s.language===lang&&s.level===level&&Number(s.N)===N&&s.domain===domain&&jcat(s.judge)===judge);
+  const badge=j=>jcat(j)==='Preference'?'<span class="badge pref">preference</span>':jcat(j)==='Opposite'?'<span class="badge opp">opposite</span>':'<span class="badge unk">unknown</span>';
   document.getElementById('samples-container').innerHTML = rows.length?rows.map(r=>`
-    <div class="sample-card"><div class="q">Q: ${r.question||''}</div><div class="r">${r.response||''}</div>${badge(r.judge)}</div>`).join('')
-    : '<p class="hint">No sample data for this combination. Export SAMPLE_DATA to populate this tab.</p>';
+    <div class="sample-card"><div class="q">Q: ${r.question||''}</div><div class="r">${r.response||''}</div>${badge(r.judge)}<span class="meta"> · ${modelOf(r)||''}</span></div>`).join('')
+    : '<p class="hint">No samples for this combination.</p>';
 }
 
 function render(){
@@ -361,7 +328,6 @@ function render(){
   else if(state.view==='regression')renderRegression();
   else if(state.view==='samples')renderSamples();
 }
-
 document.querySelectorAll('.tab-btn').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('.tab-btn').forEach(x=>x.classList.remove('active'));b.classList.add('active');
   state.view=b.dataset.view;
@@ -369,15 +335,9 @@ document.querySelectorAll('.tab-btn').forEach(b=>b.onclick=()=>{
   buildSidebar();render();
 });
 
-if(!window.Chart){
-  showAppError('Chart.js could not be loaded. Check your connection or CDN access.');
-}else if(!Array.isArray(DATA)||!DATA.length){
-  showAppError('Scaling data could not be loaded. Open this page with scaling_data.js beside it.');
-}else{
-  buildSidebar();
-  initSamples();
-  render();
-}
+if(!window.Chart){ showAppError('Chart.js could not load. Check CDN access.'); }
+else if(!Array.isArray(DATA)||!DATA.length){ showAppError('Scaling data not found. Place scaling_data.js beside this page.'); }
+else { buildSidebar(); initSamples(); render(); }
 </script>
 </body>
 </html>
