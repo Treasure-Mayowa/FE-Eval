@@ -23,6 +23,9 @@
   .toggle-row { display:flex; gap:6px; flex-wrap:wrap; }
   .toggle { padding:6px 11px; border:1px solid var(--border); border-radius:6px; background:transparent; color:var(--text-dim); cursor:pointer; font-size:13px; }
   .toggle.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .compare-models { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .compare-models label { color:var(--text-dim); font-size:11px; }
+  .compare-models select { margin:5px 0 0; }
   .lang-list { display:flex; flex-direction:column; gap:3px; max-height:260px; overflow-y:auto; }
   .lang-item { display:flex; align-items:center; gap:8px; padding:4px 6px; border-radius:5px; cursor:pointer; font-size:13px; }
   .lang-item:hover { background:rgba(255,255,255,0.04); }
@@ -124,7 +127,7 @@ const PALETTE=['#4f9cf9','#7bb8ff','#f5a623','#f7c873','#3ecf8e','#8ee6b8','#e05
 const colorFor={}; LANGS.forEach((l,i)=>colorFor[l]=PALETTE[i%PALETTE.length]);
 function hexRgba(h,a){const n=parseInt(h.slice(1),16);return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;}
 
-const state={view:'lines',domain:'Out of Domain',metric:'delta',model:'compare',levels:new Set(['AVG']),ci:'off',active:new Set(LANGS)};
+const state={view:'lines',domain:'Out of Domain',metric:'delta',model:'compare',compareModels:MODELS.slice(0,2),levels:new Set(['AVG']),ci:'off',active:new Set(LANGS)};
 
 function series(lang, level, model){
   const key=state.metric==='delta'?'delta':'score', ciKey=state.metric==='delta'?'delta_ci':'score_ci';
@@ -144,7 +147,8 @@ function series(lang, level, model){
 function buildSidebar(){
   const sb=document.getElementById('sidebar');
   if(state.view==='samples'){ sb.innerHTML=''; return; }
-  const modelOptions = state.view==='lines'
+  const canCompare = state.view==='lines'||state.view==='regression';
+  const modelOptions = canCompare
     ? `<option value="compare" ${state.model==='compare'?'selected':''}>Compare both</option>` + MODELS.map(m=>`<option value="${m}" ${state.model===m?'selected':''}>${m}</option>`).join('')
     : MODELS.map(m=>`<option value="${m}" ${(state.model===m||state.model==='compare'&&m===MODELS[0])?'selected':''}>${m}</option>`).join('');
   let html=`
@@ -153,6 +157,9 @@ function buildSidebar(){
      <button class="toggle ${state.domain==='In Domain'?'active':''}" data-val="In Domain">In Domain</button>
    </div></div>
    <div class="control-group"><h3>Model</h3><select id="model-select" class="sel">${modelOptions}</select></div>
+   ${canCompare&&state.model==='compare'?`<div class="control-group"><h3>Compare models</h3><div class="compare-models">
+     ${state.compareModels.map((model,i)=>`<label>Model ${i?'B':'A'}<select class="sel compare-model-select" data-index="${i}">${MODELS.map(m=>`<option value="${m}" ${model===m?'selected':''}>${m}</option>`).join('')}</select></label>`).join('')}
+   </div></div>`:''}
    ${state.view==='regression'?'':`<div class="control-group"><h3>Metric</h3><div class="toggle-row" id="metric-toggles">
      <button class="toggle ${state.metric==='delta'?'active':''}" data-val="delta">Δ over baseline</button>
      <button class="toggle ${state.metric==='raw'?'active':''}" data-val="raw">Raw rate</button>
@@ -179,6 +186,12 @@ function buildSidebar(){
 function wire(){
   const ms=document.getElementById('model-select');
   if(ms) ms.onchange=()=>{state.model=ms.value;buildSidebar();render();};
+  document.querySelectorAll('.compare-model-select').forEach(select=>select.onchange=()=>{
+    const index=Number(select.dataset.index), other=1-index, previous=state.compareModels[index];
+    state.compareModels[index]=select.value;
+    if(state.compareModels[index]===state.compareModels[other]) state.compareModels[other]=previous;
+    buildSidebar();render();
+  });
   const dt=document.getElementById('domain-toggles');
   if(dt) dt.querySelectorAll('.toggle').forEach(b=>b.onclick=()=>{state.domain=b.dataset.val;buildSidebar();render();});
   const mt=document.getElementById('metric-toggles');
@@ -204,7 +217,7 @@ function wire(){
 let chart;
 function renderLines(){
   const shown=LANGS.filter(l=>state.active.has(l)), levels=[...state.levels], datasets=[];
-  const modelsToShow = state.model==='compare' ? MODELS : [state.model];
+  const modelsToShow = state.model==='compare' ? state.compareModels : [state.model];
   const modelDash={}; modelsToShow.forEach((m,i)=>modelDash[m]= i===0?[]:[7,4]);
   for(const lang of shown) for(const level of levels) for(const model of modelsToShow){
     const s=series(lang,level,model);
@@ -219,7 +232,7 @@ function renderLines(){
   }
   const tm=state.metric==='delta'?'Δ over M011 baseline':'Preference rate';
   const tl=levels.map(l=>l==='AVG'?'Avg':l).join(', ');
-  const mn = state.model==='compare' ? ` · solid=${MODELS[0]}, dashed=${MODELS[1]}` : ` · ${state.model}`;
+  const mn = state.model==='compare' ? ` · solid=${state.compareModels[0]}, dashed=${state.compareModels[1]}` : ` · ${state.model}`;
   document.getElementById('chart-title').textContent=`${tm} — ${state.domain} — ${tl}${mn}`;
   const cfg={type:'line',data:{labels:XLABELS,datasets},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'nearest',intersect:false},
     plugins:{legend:{display:false},tooltip:{filter:it=>!it.dataset._h,callbacks:{label:c=>`${c.dataset.label}: ${c.parsed.y?.toFixed(1)}%`}}},
@@ -275,7 +288,7 @@ function fitOne(model, level){
 }
 function renderRegression(){
   const level=[...state.levels][0]||'AVG';
-  const modelsToShow = state.model==='compare' ? MODELS : [state.model];
+  const modelsToShow = state.model==='compare' ? state.compareModels : [state.model];
   const fits = modelsToShow.map(m=>({model:m, ...fitOne(m,level)}));
   document.getElementById('reg-title').textContent=`Log-log fit — ${state.domain} — ${level==='AVG'?'Avg':level}`;
   document.getElementById('reg-stats').innerHTML = fits.map(f=>`
