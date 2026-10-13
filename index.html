@@ -114,6 +114,7 @@
 <script>
 const DATA = window.SCALING_DATA;
 const SAMPLES = window.SAMPLE_DATA || [];
+const SEED = window.SEED_DATA || [];
 function showAppError(m){const e=document.getElementById('app-error');e.textContent=m;e.classList.remove('hidden');document.querySelector('.layout').classList.add('hidden');}
 function modelOf(r){return r.model||r.model_name;}
 
@@ -127,7 +128,7 @@ const PALETTE=['#4f9cf9','#7bb8ff','#f5a623','#f7c873','#3ecf8e','#8ee6b8','#e05
 const colorFor={}; LANGS.forEach((l,i)=>colorFor[l]=PALETTE[i%PALETTE.length]);
 function hexRgba(h,a){const n=parseInt(h.slice(1),16);return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;}
 
-const state={view:'lines',domain:'Out of Domain',metric:'delta',model:'compare',compareModels:MODELS.slice(0,2),levels:new Set(['AVG']),ci:'off',active:new Set(LANGS)};
+const state={view:'lines',domain:'Out of Domain',metric:'delta',model:'compare',compareModels:MODELS.slice(0,2),levels:new Set(['AVG']),err:'off',active:new Set(LANGS)};
 
 function series(lang, level, model){
   const key=state.metric==='delta'?'delta':'score', ciKey=state.metric==='delta'?'delta_ci':'score_ci';
@@ -142,6 +143,17 @@ function series(lang, level, model){
     mean.push(m);up.push(m+ci);lo.push(m-ci);
   }
   return {mean,up,lo};
+}
+
+// Across-seed mean and std for one language/level/model (from window.SEED_DATA)
+function seedPoint(lang, level, model){
+  const lv = level==='AVG' ? 'Avg' : level;
+  const r = SEED.find(d=>d.model===model&&d.language===lang&&d.domain===state.domain&&d.level===lv);
+  if(!r) return null;
+  const m  = state.metric==='delta' ? r.delta_mean : r.score_mean;
+  const sd = state.metric==='delta' ? r.delta_std  : r.score_std;
+  if(m==null||sd==null) return null;
+  return {N:r.N, mean:m, std:sd, n:r.n_seeds};
 }
 
 function buildSidebar(){
@@ -165,13 +177,15 @@ function buildSidebar(){
      <button class="toggle ${state.metric==='raw'?'active':''}" data-val="raw">Raw rate</button>
    </div></div>`}`;
   if(state.view==='lines'){
+    const errNote = state.err==='seed'
+      ? '<p class="hint" style="margin-top:8px">Seed std (n=3) is only available for tiny aya global at N=14, shown as ±1 std error bars on the N=14 points. Other points have no seed estimate yet (no bar ≠ zero variance). For Δ, baseline seed variance is not included.</p>'
+      : '';
     html+=`<div class="control-group"><h3>Levels (multi-select)</h3><div class="toggle-row" id="level-toggles">
       ${['AVG','L1','L3','L4','L5'].map(l=>`<button class="toggle ${state.levels.has(l)?'active':''}" data-val="${l}">${l==='AVG'?'Avg':l}</button>`).join('')}
     </div></div>
-    <div class="control-group"><h3>Confidence Intervals</h3><div class="toggle-row" id="ci-toggles">
-      <button class="toggle ${state.ci==='on'?'active':''}" data-val="on">Show</button>
-      <button class="toggle ${state.ci==='off'?'active':''}" data-val="off">Hide</button>
-    </div></div>
+    <div class="control-group"><h3>Error bars</h3><div class="toggle-row" id="err-toggles">
+      ${[['off','None'],['ci','Eval CI'],['seed','Seed std']].map(([v,t])=>`<button class="toggle ${state.err===v?'active':''}" data-val="${v}">${t}</button>`).join('')}
+    </div>${errNote}</div>
     <div class="control-group"><h3>Languages</h3>
       <div class="btn-row"><button class="btn-sm" id="sa">All</button><button class="btn-sm" id="sn">None</button><button class="btn-sm" id="se">English</button></div>
       <div class="lang-list" id="lang-list"></div></div>`;
@@ -203,8 +217,8 @@ function wire(){
     else { state.levels=new Set([v]); }
     buildSidebar();render();
   });
-  const ct=document.getElementById('ci-toggles');
-  if(ct) ct.querySelectorAll('.toggle').forEach(b=>b.onclick=()=>{state.ci=b.dataset.val;buildSidebar();render();});
+  const et=document.getElementById('err-toggles');
+  if(et) et.querySelectorAll('.toggle').forEach(b=>b.onclick=()=>{state.err=b.dataset.val;buildSidebar();render();});
   const ll=document.getElementById('lang-list');
   if(ll) LANGS.forEach(lang=>{const it=document.createElement('div');it.className='lang-item'+(state.active.has(lang)?'':' off');
     it.innerHTML=`<span class="lang-swatch" style="background:${colorFor[lang]}"></span>${lang}`;
@@ -224,23 +238,49 @@ function renderLines(){
     let label=lang;
     if(levels.length>1) label+=` · ${level==='AVG'?'Avg':level}`;
     if(modelsToShow.length>1) label+=` · ${model}`;
-    if(state.ci==='on'){
+    if(state.err==='ci'){
       datasets.push({label:label+'_u',data:s.up,borderColor:'transparent',pointRadius:0,fill:'+1',backgroundColor:hexRgba(colorFor[lang],0.08),tension:0.3,spanGaps:true,_h:true});
       datasets.push({label:label+'_l',data:s.lo,borderColor:'transparent',pointRadius:0,fill:false,tension:0.3,spanGaps:true,_h:true});
     }
-    datasets.push({label,data:s.mean,borderColor:colorFor[lang],backgroundColor:colorFor[lang],borderWidth:lang==='English'?2.6:1.6,borderDash:modelDash[model]||[],pointRadius:2,tension:0.3,spanGaps:true});
+    const line={label,data:s.mean,borderColor:colorFor[lang],backgroundColor:colorFor[lang],borderWidth:lang==='English'?2.6:1.6,borderDash:modelDash[model]||[],pointRadius:2,tension:0.3,spanGaps:true};
+    if(state.err==='seed'){
+      // seed std drawn as an error bar on the line's own point (only where seed runs exist)
+      const sp=seedPoint(lang,level,model);
+      if(sp){ const err=Array(15).fill(null); err[sp.N]=sp.std; line._err=err; line._n=sp.n; }
+    }
+    datasets.push(line);
   }
   const tm=state.metric==='delta'?'Δ over M011 baseline':'Preference rate';
   const tl=levels.map(l=>l==='AVG'?'Avg':l).join(', ');
   const mn = state.model==='compare' ? ` · solid=${state.compareModels[0]}, dashed=${state.compareModels[1]}` : ` · ${state.model}`;
   document.getElementById('chart-title').textContent=`${tm} — ${state.domain} — ${tl}${mn}`;
   const cfg={type:'line',data:{labels:XLABELS,datasets},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'nearest',intersect:false},
-    plugins:{legend:{display:false},tooltip:{filter:it=>!it.dataset._h,callbacks:{label:c=>`${c.dataset.label}: ${c.parsed.y?.toFixed(1)}%`}}},
+    plugins:{legend:{display:false},tooltip:{filter:it=>!it.dataset._h,callbacks:{label:c=>(c.dataset._err&&c.dataset._err[c.dataIndex]!=null)
+      ? `${c.dataset.label}: ${c.parsed.y?.toFixed(1)}% ± ${c.dataset._err[c.dataIndex].toFixed(1)} (seed std, n=${c.dataset._n})`
+      : `${c.dataset.label}: ${c.parsed.y?.toFixed(1)}%`}}},
     scales:{x:{ticks:{color:'#9aa3b2',font:{size:9},maxRotation:60,minRotation:60},grid:{color:'#262b36'}},
       y:{title:{display:true,text:state.metric==='delta'?'Δ Preference Rate (%)':'Preference Rate (%)',color:'#9aa3b2'},ticks:{color:'#9aa3b2'},grid:{color:'#262b36'},suggestedMin:state.metric==='delta'?-25:0,suggestedMax:state.metric==='delta'?60:100}}}};
   if(chart)chart.destroy(); chart=new Chart(document.getElementById('chart'),cfg);
 }
 if(window.Chart) Chart.register({id:'zero',afterDraw(c){if(state.metric!=='delta'||state.view!=='lines')return;const y=c.scales.y.getPixelForValue(0);const{left,right}=c.chartArea;const x=c.ctx;x.save();x.strokeStyle='#e6e9ef';x.setLineDash([5,4]);x.lineWidth=1;x.beginPath();x.moveTo(left,y);x.lineTo(right,y);x.stroke();x.restore();}});
+
+// Draws vertical error bars for any dataset that carries an _err array (seed std markers)
+if(window.Chart) Chart.register({id:'errbars',afterDatasetsDraw(c){
+  if(!c.scales.y) return;
+  const ctx=c.ctx, y=c.scales.y;
+  c.data.datasets.forEach((ds,i)=>{
+    if(!ds._err||!c.isDatasetVisible(i)) return;
+    c.getDatasetMeta(i).data.forEach((pt,j)=>{
+      const e=ds._err[j], v=ds.data[j]; if(e==null||v==null) return;
+      const top=y.getPixelForValue(v+e), bot=y.getPixelForValue(v-e);
+      ctx.save(); ctx.strokeStyle=ds.borderColor; ctx.lineWidth=1.5; ctx.beginPath();
+      ctx.moveTo(pt.x,top); ctx.lineTo(pt.x,bot);
+      ctx.moveTo(pt.x-4,top); ctx.lineTo(pt.x+4,top);
+      ctx.moveTo(pt.x-4,bot); ctx.lineTo(pt.x+4,bot);
+      ctx.stroke(); ctx.restore();
+    });
+  });
+}});
 
 function cScale(v){
   if(state.metric==='delta'){const max=50,t=Math.max(-1,Math.min(1,v/max));
